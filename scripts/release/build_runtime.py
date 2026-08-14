@@ -12,6 +12,16 @@ from pathlib import Path
 from release_lib import ROOT, git_commit, project_version, run, write_json
 
 PYTHON_VERSION = "3.13.12"
+ALLOWED_MACHO_DEPENDENCY_PREFIXES = (
+    "@executable_path/",
+    "@loader_path/",
+    "@rpath/",
+    "/System/Library/",
+    "/usr/lib/",
+)
+PRUNED_RUNTIME_PACKAGES = {
+    "pyroscope-io": "upstream macOS wheels reference an unbundled absolute build-machine library",
+}
 PYTHON_TARGETS = {
     "arm64": f"cpython-{PYTHON_VERSION}-macos-aarch64-none",
     "x86_64": f"cpython-{PYTHON_VERSION}-macos-x86_64-none",
@@ -51,6 +61,7 @@ def main() -> int:
         stage.mkdir()
         write_wrappers(stage)
         packages: dict[str, list[dict[str, str]]] = {}
+        openssl_versions: dict[str, str] = {}
         for architecture in architectures:
             target = PYTHON_TARGETS[architecture]
             python_root = ensure_python(args.python_cache, target)
@@ -60,6 +71,9 @@ def main() -> int:
                 stage=stage,
                 wheel=args.wheel.resolve(),
                 requirements=args.requirements.resolve(),
+            )
+            openssl_versions[architecture] = runtime_openssl_version(
+                stage, architecture
             )
         artifact = (
             "codexthrift-runtime-macos-universal.tar.zst"
@@ -72,6 +86,8 @@ def main() -> int:
             "coreVersion": project_version(),
             "sourceCommit": args.source_commit,
             "pythonVersion": PYTHON_VERSION,
+            "opensslVersions": openssl_versions,
+            "excludedPackages": PRUNED_RUNTIME_PACKAGES,
             "architectures": packages,
         }
         write_json(stage / "runtime-manifest.json", manifest)
@@ -160,6 +176,8 @@ def build_architecture(
             str(wheel),
         ]
     )
+    prune_nonportable_optional_packages(site_packages)
+    verify_portable_macho_files(site_packages)
     subprocess.run(
         runtime_command(
             stage,
@@ -189,6 +207,56 @@ def build_architecture(
         if name not in required:
             raise RuntimeError(f"{name} missing from {architecture} runtime")
     return packages
+
+
+def prune_nonportable_optional_packages(site_packages: Path) -> None:
+    package_directories = [site_packages / "pyroscope", site_packages / "pyroscope_io"]
+    dist_info = list(site_packages.glob("pyroscope_io-*.dist-info"))
+    if len(dist_info) != 1:
+        raise RuntimeError("expected exactly one pyroscope-io dist-info directory")
+    for path in [*package_directories, dist_info[0]]:
+        if not path.is_dir() or path.is_symlink() or path.parent != site_packages:
+            raise RuntimeError(f"unsafe or missing optional Runtime package path: {path}")
+        shutil.rmtree(path)
+
+
+def verify_portable_macho_files(root: Path) -> None:
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix not in {".dylib", ".so"}:
+            continue
+        output = subprocess.check_output(["otool", "-L", str(path)], text=True)
+        validate_macho_dependencies(path, output)
+
+
+def validate_macho_dependencies(path: Path, output: str) -> None:
+    for line in output.splitlines():
+        if not line[:1].isspace():
+            continue
+        dependency = line.strip().partition(" (compatibility version")[0]
+        if dependency.startswith("/") and not dependency.startswith(
+            ALLOWED_MACHO_DEPENDENCY_PREFIXES
+        ):
+            raise RuntimeError(
+                f"non-portable Mach-O dependency in {path}: {dependency}"
+            )
+
+
+def runtime_openssl_version(stage: Path, architecture: str) -> str:
+    output = subprocess.check_output(
+        runtime_command(
+            stage,
+            architecture,
+            [
+                "-c",
+                "from cryptography.hazmat.backends.openssl.backend import backend; print(backend.openssl_version_text())",
+            ],
+        ),
+        text=True,
+        env=runtime_env(stage, architecture),
+    ).strip()
+    if not output.startswith("OpenSSL "):
+        raise RuntimeError(f"invalid {architecture} Runtime OpenSSL version: {output}")
+    return output
 
 
 def write_wrappers(stage: Path) -> None:

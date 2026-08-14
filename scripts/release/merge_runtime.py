@@ -10,7 +10,7 @@ import tarfile
 import tempfile
 from pathlib import Path, PurePosixPath
 
-from build_runtime import create_archive
+from build_runtime import PRUNED_RUNTIME_PACKAGES, create_archive
 from release_lib import ROOT, write_json
 
 ARCHITECTURES = ("arm64", "x86_64")
@@ -56,6 +56,11 @@ def main() -> int:
             "coreVersion": manifests["arm64"]["coreVersion"],
             "sourceCommit": manifests["arm64"]["sourceCommit"],
             "pythonVersion": manifests["arm64"]["pythonVersion"],
+            "opensslVersions": {
+                architecture: manifests[architecture]["opensslVersions"][architecture]
+                for architecture in ARCHITECTURES
+            },
+            "excludedPackages": PRUNED_RUNTIME_PACKAGES,
             "architectures": {
                 architecture: manifests[architecture]["architectures"][architecture]
                 for architecture in ARCHITECTURES
@@ -119,6 +124,16 @@ def validate_manifests(manifests: dict[str, dict[str, object]]) -> None:
         expected_artifact = f"codexthrift-runtime-macos-{architecture}.tar.zst"
         if manifest.get("artifact") != expected_artifact:
             raise RuntimeError(f"{architecture} Runtime artifact name is invalid")
+        openssl_versions = manifest.get("opensslVersions")
+        if (
+            not isinstance(openssl_versions, dict)
+            or set(openssl_versions) != {architecture}
+            or not isinstance(openssl_versions[architecture], str)
+            or not openssl_versions[architecture].startswith("OpenSSL ")
+        ):
+            raise RuntimeError(f"{architecture} Runtime OpenSSL version is invalid")
+        if manifest.get("excludedPackages") != PRUNED_RUNTIME_PACKAGES:
+            raise RuntimeError(f"{architecture} Runtime excluded packages are invalid")
         for field in ("coreVersion", "sourceCommit", "pythonVersion"):
             if manifest.get(field) != reference.get(field):
                 raise RuntimeError(f"partial Runtime {field} values differ")

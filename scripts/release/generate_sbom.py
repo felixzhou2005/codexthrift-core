@@ -22,6 +22,8 @@ def main() -> int:
             packages.setdefault((entry["name"], entry["version"]), set()).add(
                 architecture
             )
+    for architecture, version in runtime["opensslVersions"].items():
+        packages.setdefault(("OpenSSL", version), set()).add(architecture)
     spdx_packages = [
         {
             "SPDXID": "SPDXRef-Package-CodexThrift",

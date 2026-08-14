@@ -55,6 +55,11 @@ jobs:
         env:
           ARCHITECTURE: ${{ matrix.architecture }}
         run: |
+          if [ "$ARCHITECTURE" = "x86_64" ]; then
+            export OPENSSL_DIR="$(brew --prefix openssl@3)"
+            export OPENSSL_STATIC=1
+            export UV_NO_CACHE=1
+          fi
           uv build --wheel --out-dir "$RUNNER_TEMP/wheel"
           WHEEL="$(find "$RUNNER_TEMP/wheel" -maxdepth 1 -type f -name '*.whl' -print -quit)"
           test -n "$WHEEL"

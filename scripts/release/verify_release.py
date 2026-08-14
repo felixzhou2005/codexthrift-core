@@ -8,6 +8,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+from build_runtime import PRUNED_RUNTIME_PACKAGES
 from release_lib import project_version, release_artifact_names, run_output, sha256
 
 
@@ -98,6 +99,18 @@ def verify_runtime(runtime: Path, release: Path) -> None:
         raise SystemExit("Embedded and published Runtime manifests differ")
     if manifest["coreVersion"] != project_version():
         raise SystemExit("Runtime Core version mismatch")
+    openssl_versions = manifest.get("opensslVersions")
+    if (
+        not isinstance(openssl_versions, dict)
+        or set(openssl_versions) != {"arm64", "x86_64"}
+        or not all(
+            isinstance(value, str) and value.startswith("OpenSSL ")
+            for value in openssl_versions.values()
+        )
+    ):
+        raise SystemExit("Runtime OpenSSL versions are invalid")
+    if manifest.get("excludedPackages") != PRUNED_RUNTIME_PACKAGES:
+        raise SystemExit("Runtime excluded packages are invalid")
     commands = [
         ([str(release / "codexthriftd-arm64-apple-darwin"), "--self-test"], "arm64"),
         (
