@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexthrift.dev/schemas/ipc-handshake.schema.json",
+  "title": "CodexThrift IPC Handshake Result",
+  "type": "object",
+  "required": ["coreVersion", "protocolVersion", "features"],
+  "properties": {
+    "coreVersion": {"type": "string"},
+    "protocolVersion": {"const": "1.0"},
+    "features": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  },
+  "additionalProperties": false
+}

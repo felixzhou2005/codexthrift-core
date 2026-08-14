@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codexthrift"
+version = "0.2.0"
+description = "Open local-first routing, observability, and subscription-limit core for Codex and LiteLLM."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{ name = "CodexThrift contributors" }]
+dependencies = [
+  "cryptography>=50,<51",
+  "fastapi>=0.115,<1",
+  "fastmcp==3.4.5",
+  "httpx>=0.28,<1",
+  "psutil>=6,<8",
+  "PyYAML>=6.0,<7",
+  "tomlkit>=0.13,<1",
+  "uvicorn>=0.30,<1",
+  "zstandard>=0.23,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.8,<1"]
+desktop = ["pyinstaller>=6,<7"]
+runtime = ["litellm[proxy]==1.96.2", "fastapi==0.136.3"]
+
+[project.scripts]
+codexthrift = "codexthrift.cli:main"
+codexthrift-mcp = "codexthrift.server:main"
+codexthrift-mcp-readonly = "codexthrift.server_readonly:main"
+codexthrift-key = "codexthrift.key_reader:main"
+codexthriftd = "codexthrift.daemon.main:main"
+codexthrift-dashboard = "codexthrift.dashboard:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexthrift.dev/schemas/ipc-response.schema.json",
+  "title": "CodexThrift IPC Response",
+  "type": "object",
+  "required": ["jsonrpc", "id"],
+  "properties": {
+    "jsonrpc": {"const": "2.0"},
+    "id": {"type": ["string", "integer", "null"]},
+    "result": {},
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {"type": "integer"},
+        "message": {"type": "string"},
+        "data": {}
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {"required": ["result"], "not": {"required": ["error"]}},
+    {"required": ["error"], "not": {"required": ["result"]}}
+  ],
+  "additionalProperties": false
+}

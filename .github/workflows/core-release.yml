@@ -1,0 +1,76 @@
+name: Core Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact existing tag to release, for example core-v0.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Require an exact tag ref
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          test "$REF_TYPE" = tag
+          test "$REF_NAME" = "$REQUESTED_TAG"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # pinned action source
+        with:
+          toolchain: 1.97.1
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # pinned from v6
+        with:
+          enable-cache: true
+      - name: Install Rosetta
+        run: sudo softwareupdate --install-rosetta --agree-to-license || true
+      - name: Lock and test
+        run: |
+          uv sync --extra dev --extra runtime
+          uv lock --check
+          uv run pytest -p no:cacheprovider
+      - name: Build verified release set
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: uv run python scripts/release/build_release.py --release-tag "$RELEASE_TAG"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned from v4
+        with:
+          name: codexthrift-core-release
+          path: packaging/out/core-v*/**
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: public-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned from v4
+        with:
+          name: codexthrift-core-release
+          path: packaging/out
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # pinned from v2
+        with:
+          subject-path: packaging/out/core-v*/**
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # pinned from v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          body_path: packaging/out/${{ inputs.release_tag }}/RELEASE_NOTES.md
+          files: packaging/out/${{ inputs.release_tag }}/**
