@@ -14,6 +14,7 @@ from release_lib import (
     run,
     run_output,
     sha256,
+    verify_runtime_lock,
     write_json,
 )
 
@@ -31,6 +32,7 @@ def main() -> int:
     version = project_version()
     source_tree_clean = verify_source_state(args.source_commit, args.allow_dirty)
     verify_release_tag(version, args.release_tag)
+    verify_runtime_lock()
     release = args.out_dir / f"core-v{version}"
     shutil.rmtree(release, ignore_errors=True)
     release.mkdir(parents=True)

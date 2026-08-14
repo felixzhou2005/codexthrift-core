@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -58,3 +59,34 @@ def release_artifact_names(version: str) -> set[str]:
         "RELEASE_NOTES.md",
         "SHA256SUMS",
     }
+
+
+def verify_runtime_lock() -> None:
+    """Require the committed Runtime lock to match a fresh export from uv.lock."""
+    committed = ROOT / "packaging/runtime/requirements.lock"
+    with tempfile.TemporaryDirectory(prefix="codexthrift-runtime-lock-") as temporary:
+        generated = Path(temporary) / "requirements.lock"
+        subprocess.run(
+            [
+                "uv",
+                "export",
+                "--extra",
+                "runtime",
+                "--no-emit-project",
+                "--format",
+                "requirements-txt",
+                "--output-file",
+                str(generated),
+            ],
+            cwd=ROOT,
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        # uv records the output path in the second generated comment line.
+        # The dependency and hash payload begins after the two-line header.
+        expected = generated.read_text(encoding="utf-8").splitlines()[2:]
+        actual = committed.read_text(encoding="utf-8").splitlines()[2:]
+        if actual != expected:
+            raise RuntimeError(
+                "packaging/runtime/requirements.lock is stale; regenerate it from uv.lock"
+            )
