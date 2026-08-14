@@ -84,6 +84,13 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
 
 
+def _path_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return 0
+
+
 def _parse_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
@@ -2240,7 +2247,6 @@ class DashboardStore:
 
     def storage_overview(self) -> dict[str, Any]:
         self.initialize()
-        database_bytes = self.database_path.stat().st_size if self.database_path.exists() else 0
         wal_path = Path(f"{self.database_path}-wal")
         shm_path = Path(f"{self.database_path}-shm")
         with self._connect() as connection:
@@ -2254,9 +2260,9 @@ class DashboardStore:
             payload_count = int(connection.execute("SELECT COUNT(*) FROM call_payloads").fetchone()[0])
         return {
             "path": str(self.database_path),
-            "bytes": database_bytes,
-            "wal_bytes": wal_path.stat().st_size if wal_path.exists() else 0,
-            "shm_bytes": shm_path.stat().st_size if shm_path.exists() else 0,
+            "bytes": _path_size(self.database_path),
+            "wal_bytes": _path_size(wal_path),
+            "shm_bytes": _path_size(shm_path),
             "page_size": page_size,
             "page_count": page_count,
             "freelist_count": freelist_count,

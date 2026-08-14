@@ -14,6 +14,7 @@ from codexthrift.dashboard_store import (
     DashboardStore,
     _apply_cost_state,
     _parse_timestamp,
+    _path_size,
 )
 
 
@@ -44,6 +45,14 @@ def test_store_connection_context_closes_connection(tmp_path: Path) -> None:
 
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
         connection.execute("SELECT 1")
+
+
+def test_path_size_treats_transient_sqlite_sidecar_removal_as_zero() -> None:
+    class RemovedSidecar:
+        def stat(self):
+            raise FileNotFoundError("SQLite removed the temporary sidecar")
+
+    assert _path_size(RemovedSidecar()) == 0
 
 
 def test_exclusive_database_maintenance_waits_and_blocks_new_connections(tmp_path: Path) -> None:
