@@ -16,7 +16,10 @@ PYTHON_TARGETS = {
     "arm64": f"cpython-{PYTHON_VERSION}-macos-aarch64-none",
     "x86_64": f"cpython-{PYTHON_VERSION}-macos-x86_64-none",
 }
-RUST_TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
+RUST_TARGETS = {
+    "arm64": "aarch64-apple-darwin",
+    "x86_64": "x86_64-apple-darwin",
+}
 
 
 def main() -> int:
@@ -32,15 +35,24 @@ def main() -> int:
         "--python-cache", type=Path, default=Path.home() / ".cache/codexthrift/python"
     )
     parser.add_argument("--source-commit", default=git_commit())
+    parser.add_argument(
+        "--architecture",
+        action="append",
+        choices=tuple(PYTHON_TARGETS),
+        dest="architectures",
+        help="Build only the selected Runtime architecture; repeat for more than one.",
+    )
     args = parser.parse_args()
-    verify_rust_targets()
+    architectures = tuple(dict.fromkeys(args.architectures or PYTHON_TARGETS))
+    verify_rust_targets(architectures)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="codexthrift-runtime-") as temporary:
         stage = Path(temporary) / "codexthrift-runtime"
         stage.mkdir()
         write_wrappers(stage)
         packages: dict[str, list[dict[str, str]]] = {}
-        for architecture, target in PYTHON_TARGETS.items():
+        for architecture in architectures:
+            target = PYTHON_TARGETS[architecture]
             python_root = ensure_python(args.python_cache, target)
             packages[architecture] = build_architecture(
                 architecture=architecture,
@@ -49,9 +61,14 @@ def main() -> int:
                 wheel=args.wheel.resolve(),
                 requirements=args.requirements.resolve(),
             )
+        artifact = (
+            "codexthrift-runtime-macos-universal.tar.zst"
+            if set(architectures) == set(PYTHON_TARGETS)
+            else f"codexthrift-runtime-macos-{architectures[0]}.tar.zst"
+        )
         manifest = {
             "schemaVersion": 1,
-            "artifact": "codexthrift-runtime-macos-universal.tar.zst",
+            "artifact": artifact,
             "coreVersion": project_version(),
             "sourceCommit": args.source_commit,
             "pythonVersion": PYTHON_VERSION,
@@ -59,7 +76,7 @@ def main() -> int:
         }
         write_json(stage / "runtime-manifest.json", manifest)
         write_json(args.out_dir / "runtime-manifest.json", manifest)
-        archive = args.out_dir / "codexthrift-runtime-macos-universal.tar.zst"
+        archive = args.out_dir / artifact
         create_archive(stage, archive)
     return 0
 
@@ -77,11 +94,12 @@ def ensure_python(cache: Path, target: str) -> Path:
     return root
 
 
-def verify_rust_targets() -> None:
+def verify_rust_targets(architectures: tuple[str, ...]) -> None:
     if shutil.which("rustc") is None:
         raise RuntimeError("rustc is required to build the macOS Runtime")
     missing = []
-    for target in RUST_TARGETS:
+    for architecture in architectures:
+        target = RUST_TARGETS[architecture]
         try:
             output = subprocess.check_output(
                 ["rustc", "--print", "target-libdir", "--target", target],

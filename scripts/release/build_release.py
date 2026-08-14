@@ -27,6 +27,7 @@ def main() -> int:
     )
     parser.add_argument("--source-commit", default=git_commit())
     parser.add_argument("--release-tag", default="")
+    parser.add_argument("--runtime-input-dir", type=Path)
     parser.add_argument("--allow-dirty", action="store_true")
     args = parser.parse_args()
     version = project_version()
@@ -46,21 +47,24 @@ def main() -> int:
         env=environment,
     )
     wheel = release / f"codexthrift-{version}-py3-none-any.whl"
-    run(
-        [
-            "python3",
-            "scripts/release/build_runtime.py",
-            "--wheel",
-            str(wheel),
-            "--out-dir",
-            str(release),
-            "--python-cache",
-            str(args.python_cache),
-            "--source-commit",
-            args.source_commit,
-        ],
-        env=environment,
-    )
+    if args.runtime_input_dir:
+        copy_verified_runtime_input(args.runtime_input_dir.resolve(), release)
+    else:
+        run(
+            [
+                "python3",
+                "scripts/release/build_runtime.py",
+                "--wheel",
+                str(wheel),
+                "--out-dir",
+                str(release),
+                "--python-cache",
+                str(args.python_cache),
+                "--source-commit",
+                args.source_commit,
+            ],
+            env=environment,
+        )
     source = release / f"codexthrift-{version}-source.tar.gz"
     run(
         [
@@ -138,6 +142,18 @@ def package_version(runtime: dict[str, object], name: str) -> str:
             if isinstance(entry, dict) and str(entry.get("name", "")).lower() == name:
                 return str(entry["version"])
     raise RuntimeError(f"{name} missing from runtime manifest")
+
+
+def copy_verified_runtime_input(source: Path, release: Path) -> None:
+    expected = {
+        "codexthrift-runtime-macos-universal.tar.zst",
+        "runtime-manifest.json",
+    }
+    actual = {path.name for path in source.iterdir() if path.is_file()}
+    if actual != expected:
+        raise RuntimeError("merged Runtime input file set is invalid")
+    for name in expected:
+        shutil.copy2(source / name, release / name)
 
 
 def write_checksums(release: Path) -> None:

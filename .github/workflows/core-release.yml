@@ -12,7 +12,66 @@ permissions:
   contents: read
 
 jobs:
+  runtime:
+    name: runtime-${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: arm64
+            runner: macos-15
+            rust_target: aarch64-apple-darwin
+          - architecture: x86_64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - name: Require an exact tag ref
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          test "$REF_TYPE" = tag
+          test "$REF_NAME" = "$REQUESTED_TAG"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned from v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # pinned action source
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.rust_target }}
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # pinned from v6
+        with:
+          enable-cache: true
+      - name: Verify locks
+        run: |
+          uv lock --check
+          python3 -c 'import sys; sys.path.insert(0, "scripts/release"); from release_lib import verify_runtime_lock; verify_runtime_lock()'
+      - name: Build native Runtime partial
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          uv build --wheel --out-dir "$RUNNER_TEMP/wheel"
+          WHEEL="$(find "$RUNNER_TEMP/wheel" -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$WHEEL"
+          python3 scripts/release/build_runtime.py \
+            --architecture "$ARCHITECTURE" \
+            --wheel "$WHEEL" \
+            --out-dir "$RUNNER_TEMP/runtime" \
+            --python-cache "$RUNNER_TEMP/python" \
+            --source-commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned from v4
+        with:
+          name: codexthrift-runtime-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/runtime/**
+          if-no-files-found: error
+
   build:
+    needs: runtime
     runs-on: macos-15
     permissions:
       contents: read
@@ -38,6 +97,20 @@ jobs:
           enable-cache: true
       - name: Install Rosetta
         run: sudo softwareupdate --install-rosetta --agree-to-license || true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned from v4
+        with:
+          name: codexthrift-runtime-arm64
+          path: ${{ runner.temp }}/runtime-parts/arm64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned from v4
+        with:
+          name: codexthrift-runtime-x86_64
+          path: ${{ runner.temp }}/runtime-parts/x86_64
+      - name: Merge verified Runtime partials
+        run: |
+          python3 scripts/release/merge_runtime.py \
+            --arm64-release-dir "$RUNNER_TEMP/runtime-parts/arm64" \
+            --x86-64-release-dir "$RUNNER_TEMP/runtime-parts/x86_64" \
+            --out-dir "$RUNNER_TEMP/runtime-merged"
       - name: Lock and test
         run: |
           uv sync --extra dev --extra runtime
@@ -46,7 +119,10 @@ jobs:
       - name: Build verified release set
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
-        run: uv run python scripts/release/build_release.py --release-tag "$RELEASE_TAG"
+        run: |
+          uv run python scripts/release/build_release.py \
+            --release-tag "$RELEASE_TAG" \
+            --runtime-input-dir "$RUNNER_TEMP/runtime-merged"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned from v4
         with:
           name: codexthrift-core-release
