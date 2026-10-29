@@ -13,7 +13,7 @@ authors = [{ name = "CodexThrift contributors" }]
 dependencies = [
   "cryptography>=50,<51",
   "fastapi>=0.115,<1",
-  "fastmcp==3.4.5",
+  "fastmcp==3.4.10",
   "httpx>=0.28,<1",
   "psutil>=6,<8",
   "PyYAML>=6.0,<7",
